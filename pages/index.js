@@ -1,41 +1,62 @@
-import { useEffect, useState } from "react";
-import io from "socket.io-client";
+import { useEffect, useState, useRef } from "react";
+import { RealtimeClient } from "@upstash/realtime";
 
-let socket;
+const MAX_USERS = 10;
+const MAX_MESSAGES = 100;
 
 export default function Home() {
-  const [status, setStatus] = useState("connecting");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [username, setUsername] = useState("");
+  const [username] = useState("user_" + Math.floor(Math.random() * 100000));
   const [count, setCount] = useState(0);
   const [typingUser, setTypingUser] = useState(null);
+  const [status, setStatus] = useState("connecting");
+  const channelRef = useRef(null);
 
   useEffect(() => {
-    fetch("/api/socket");
-    socket = io();
-
-    socket.on("init", (data) => {
-      setUsername(data.username);
-      setMessages(data.messages);
-      setStatus("chat");
+    const client = new RealtimeClient({
+      url: process.env.NEXT_PUBLIC_UPSTASH_WS_URL,
+      token: process.env.NEXT_PUBLIC_UPSTASH_WS_TOKEN,
     });
 
-    socket.on("msg", (msg) => {
-      setMessages((prev) => [...prev, msg]);
+    const channel = client.channel("anon-chat");
+    channelRef.current = channel;
+
+    // Join channel
+    channel.publish({ type: "join", user: username });
+
+    // Subscribe to events
+    channel.subscribe((event) => {
+      switch (event.type) {
+        case "message":
+          setMessages((prev) => {
+            const newMessages = [...prev, event.data];
+            if (newMessages.length > MAX_MESSAGES) newMessages.shift();
+            return newMessages;
+          });
+          break;
+        case "typing":
+          setTypingUser(event.data.user);
+          break;
+        case "count":
+          setCount(event.data);
+          // Enforce max users
+          if (event.data > MAX_USERS) setStatus("waiting");
+          else setStatus("chat");
+          break;
+        case "reset":
+          window.location.reload();
+          break;
+        default:
+          break;
+      }
     });
 
-    socket.on("count", setCount);
-
-    socket.on("typing", ({ user, isTyping }) => {
-      setTypingUser(isTyping ? user : null);
-    });
-
-    socket.on("full", () => setStatus("waiting"));
-    socket.on("reset", () => window.location.reload());
-
-    return () => socket.disconnect();
-  }, []);
+    return () => {
+      channel.publish({ type: "leave", user: username });
+      channel.unsubscribe();
+    };
+  }, [username]);
 
   if (status === "waiting") {
     return <div className="center">Room full. Please wait…</div>;
@@ -44,6 +65,22 @@ export default function Home() {
   if (status !== "chat") {
     return <div className="center">Connecting…</div>;
   }
+
+  const handleSend = (e) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    channelRef.current.publish({
+      type: "message",
+      data: { user: username, text: input, time: Date.now() },
+    });
+    channelRef.current.publish({ type: "typing", data: { user: username, typing: false } });
+    setInput("");
+  };
+
+  const handleTyping = (e) => {
+    setInput(e.target.value);
+    channelRef.current.publish({ type: "typing", data: { user: username, typing: true } });
+  };
 
   return (
     <div className="container">
@@ -58,25 +95,13 @@ export default function Home() {
             <b>{m.user}</b>: {m.text}
           </div>
         ))}
-        {typingUser && (
-          <div className="typing">{typingUser} is typing…</div>
-        )}
+        {typingUser && <div className="typing">{typingUser} is typing…</div>}
       </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          socket.emit("msg", input);
-          socket.emit("typing", false);
-          setInput("");
-        }}
-      >
+      <form onSubmit={handleSend}>
         <input
           value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            socket.emit("typing", true);
-          }}
+          onChange={handleTyping}
           placeholder="Type a message"
         />
       </form>

@@ -2,15 +2,15 @@
     "name": "anon-chat",
     "private": true,
     "scripts": {
-        "dev": "next dev",
-        "build": "next build",
-        "start": "next start"
+      "dev": "next dev",
+      "build": "next build",
+      "start": "next start"
     },
     "dependencies": {
-        "next": "^14.2.35",
-        "react": "18.2.0",
-        "react-dom": "18.2.0",
-        "socket.io": "^4.8.3",
-        "socket.io-client": "4.7.2"
+      "next": "14.0.0",
+      "react": "18.2.0",
+      "react-dom": "18.2.0",
+      "@upstash/realtime": "1.25.0"
     }
-}
+  }
+  
